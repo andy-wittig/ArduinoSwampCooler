@@ -13,15 +13,6 @@ const int rs = 22, en = 24, d4 = 29, d5 = 27, d6 = 25, d7 = 23;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 //-----
 
-//---Temp and Humidity
-#define DHT11PIN 7
-dht11 DHT11;
-
-const float tempThreshhold = 20; //In degrees celcius
-float tempInCelcius = 0;
-float humidity = 0;
-//-------------------
-
 //---Stepper Motor
 #define STEPPER_PIN_1 9
 #define STEPPER_PIN_2 10
@@ -61,14 +52,31 @@ int waterLevel = 0;
 const int waterThreshhold = 10;
 //--------------
 
+//---Temp and Humidity
+#define DHT11PIN 7
+dht11 DHT11;
+
+const float tempThreshhold = 20; //In degrees celcius
+float tempInCelcius = 0;
+float humidity = 0;
+//-------------------
+
 //---LEDs
 #define RED_LED_PIN 30
 #define YELLOW_LED_PIN 31
 #define GREEN_LED_PIN 32
 #define BLUE_LED_PIN 33
+
+enum LED_NAME
+{
+  RED,
+  YELLOW,
+  GREEN,
+  BLUE
+};
 //-------
 
-#define START_BUTTON_PIN 20;
+#define START_BUTTON_PIN 8
 int buttonState = 0;
  
 void setup()
@@ -90,10 +98,6 @@ void setup()
   pinMode(DIRA, OUTPUT);
   pinMode(DIRB, OUTPUT);
 
-  digitalWrite(DIRA, HIGH);
-  digitalWrite(DIRB, LOW);
-  analogWrite(ENABLE, 100);
-
   //---LEDs
   pinMode(RED_LED_PIN, OUTPUT);
   pinMode(YELLOW_LED_PIN, OUTPUT);
@@ -113,36 +117,40 @@ enum MACHINE_STATE {
   ERROR
 };
 
-int currentState = MACHINE_STATE.IDLE;
+MACHINE_STATE currentState = IDLE;
 
 void HandleMachineDisabled() 
 { 
   //Turn on LED
-  ActivateLed(YELLOW_LED_PIN);
+  ActivateLed(YELLOW);
 
   //Turn off fan
   digitalWrite(DIRA, LOW);
   digitalWrite(DIRB, LOW);
   analogWrite(ENABLE, LOW);
+
+  lcd.print("Disabled :(");
 }
 void HandleMachineIdle() 
 { 
   //Change state condition
   if (tempInCelcius > tempThreshhold)
   {
-    currentState = MACHINE_STATE.RUNNING;
+    currentState = RUNNING;
+    return;
   }
 
   if (waterLevel <= waterThreshhold)
   {
-    currentState = MACHINE_STATE.ERROR;
+    currentState = ERROR;
+    return;
   }
 
   //Display Temp and Humidity
   TempAndHumToLCD();
 
   //Turn on LED
-  ActivateLed(GREEN_LED_PIN);
+  ActivateLed(GREEN);
 
   //Turn off fan
   digitalWrite(DIRA, LOW);
@@ -154,24 +162,26 @@ void HandleMachineRunning()
   //Change state condition
   if (tempInCelcius <= tempThreshhold)
   {
-    currentState = MACHINE_STATE.IDLE;
+    StopFan();
+    currentState = IDLE;
+    return;
   }
 
   if (waterLevel < waterThreshhold)
   {
-    currentState = MACHINE_STATE.ERROR;
+    StopFan();
+    currentState = ERROR;
+    return;
   }
 
   //Display Temp and Humidity
   TempAndHumToLCD();
 
   //Turn on LED
-  ActivateLed(BLUE_LED_PIN);
+  ActivateLed(BLUE);
 
   //On entry start fan motor
-  digitalWrite(DIRA, HIGH);
-  digitalWrite(DIRB, LOW);
-  analogWrite(ENABLE, 100);
+  StartFan();
 }
 void HandleMachineError() 
 { 
@@ -180,10 +190,10 @@ void HandleMachineError()
 
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Water level is too low!")
+  lcd.print("Water level is too low!");
 
   //Turn on LED
-  ActivateLed(RED_LED_PIN);
+  ActivateLed(RED);
 }
 
 void TempAndHumToLCD()
@@ -199,52 +209,43 @@ void TempAndHumToLCD()
   lcd.print(tempInCelcius, 2);
 }
 
-void ActivateLed(int pin)
+void StopFan()
 {
-  switch (pin)
-  {
-    case pin == RED_LED_PIN:
-      digitalWrite(RED_LED_PIN, HIGH);
-      digitalWrite(YELLOW_LED_PIN, LOW);
-      digitalWrite(GREEN_LED_PIN, LOW);
-      digitalWrite(BLUE_LED_PIN, LOW);
-      break;
-    case pin == YELLOW_LED_PIN:
-      digitalWrite(RED_LED_PIN, LOW);
-      digitalWrite(YELLOW_LED_PIN, HIGH);
-      digitalWrite(GREEN_LED_PIN, LOW);
-      digitalWrite(BLUE_LED_PIN, LOW);
-      break;
-    case pin == GREEN_LED_PIN:
-      digitalWrite(RED_LED_PIN, LOW);
-      digitalWrite(YELLOW_LED_PIN, LOW);
-      digitalWrite(GREEN_LED_PIN, HIGH);
-      digitalWrite(BLUE_LED_PIN, LOW);
-      break;
-    case pin == BLUE_LED_PIN:
-      digitalWrite(RED_LED_PIN, LOW);
-      digitalWrite(YELLOW_LED_PIN, LOW);
-      digitalWrite(GREEN_LED_PIN, LOW);
-      digitalWrite(BLUE_LED_PIN, HIGH);
-      break;
-  }
+  digitalWrite(DIRA, LOW);
+  digitalWrite(DIRB, LOW);
+  analogWrite(ENABLE, LOW);
+}
+void StartFan()
+{
+  digitalWrite(DIRA, HIGH);
+  digitalWrite(DIRB, LOW);
+  analogWrite(ENABLE, 100);
+}
+
+void ActivateLed(LED_NAME name)
+{
+  digitalWrite(RED_LED_PIN, name == RED ? HIGH : LOW);
+  digitalWrite(YELLOW_LED_PIN, name == YELLOW ? HIGH : LOW);
+  digitalWrite(GREEN_LED_PIN, name == GREEN ? HIGH : LOW);
+  digitalWrite(BLUE_LED_PIN, name == BLUE ? HIGH : LOW);
 }
 
 void StartButtonPressed()
 {
   switch (currentState)
   {
-    case (MACHINE_STATE.DISABLED):
-      currentState = MACHINE_STATE.IDLE;
+    case (DISABLED):
+      currentState = IDLE;
       break;
-    case (MACHINE_STATE.IDLE):
-      currentState = MACHINE_STATE.DISABLED;
+    case (IDLE):
+      currentState = DISABLED;
       break;
-    case (MACHINE_STATE.RUNNING):
-      currentState = MACHINE_STATE.DISABLED;
+    case (RUNNING):
+      StopFan();
+      currentState = DISABLED;
       break;
-    case (MACHINE_STATE.ERROR):
-      currentState = MACHINE_STATE.DISABLED;
+    case (ERROR):
+      currentState = DISABLED;
       break;
   }
 }
@@ -261,8 +262,8 @@ void loop()
   Serial.println(waterLevel);
 
   int readDHT11 = DHT11.read(DHT11PIN);
-  tempInCelcius = (float)DHT11.temperature
-  humidity = (float)DHT11.humidity
+  tempInCelcius = (float)DHT11.temperature;
+  humidity = (float)DHT11.humidity;
   //Serial.print("Humidity (%): ");
   //Serial.println(humidity, 2);
   //Serial.print("Temperature  (C): ");
@@ -275,27 +276,28 @@ void loop()
   {
     StartButtonPressed();
     delay(50); //Debounce delay
-    while(digitalRead(buttonPin) == LOW); //Idle till button is released
+    while(digitalRead(buttonState) == LOW); //Idle till button is released
   }
 
   //State Machine
   switch (currentState)
   {
-    case (MACHINE_STATE.DISABLED):
+    case (DISABLED):
       HandleMachineDisabled();
       break;
-    case (MACHINE_STATE.IDLE):
+    case (IDLE):
       HandleMachineIdle();
       break;
-    case (MACHINE_STATE.RUNNING):
+    case (RUNNING):
       HandleMachineRunning();
       break;
-    case (MACHINE_STATE.ERROR):
+    case (ERROR):
       HandleMachineError();
       break;
   }
 
-  /* Stepper Mototr
+  /*
+  //Stepper Motor
   int targetStep = map(potVal, 0, 1023, -maxStep, maxStep);
 
   if (currentStep < targetStep) 
@@ -310,7 +312,7 @@ void loop()
   }
   */
 
-  delay(10000); //10 seconds
+  delay(1000); //1 second(s)
 }
 
 void OneStep(bool dir) 
