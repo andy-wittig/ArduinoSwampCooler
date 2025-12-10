@@ -1,5 +1,6 @@
 #include <dht11.h>
 #include <LiquidCrystal.h>
+#include <Stepper.h>
 
 //---LCD
 const int rs = 22, en = 24, d4 = 29, d5 = 27, d6 = 25, d7 = 23;
@@ -19,20 +20,8 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 #define STEPPER_PIN_3 11
 #define STEPPER_PIN_4 12
 
-int stepNumber = 0;
-int currentStep = 0;
-const int maxStep = 400;
-
-const int sequence[8][4] = {
-  {1,0,0,0},
-  {1,1,0,0},
-  {0,1,0,0},
-  {0,1,1,0},
-  {0,0,1,0},
-  {0,0,1,1},
-  {0,0,0,1},
-  {1,0,0,1}
-};
+#define STEPS 64
+Stepper stepper(STEPS, STEPPER_PIN_1, STEPPER_PIN_3, STEPPER_PIN_2, STEPPER_PIN_4);
 //-----------------
 
 //---3-6v Motor
@@ -42,21 +31,21 @@ const int sequence[8][4] = {
 //-------------
 
 //---Potentiometer Setup
-int potPin = A3;
+int potPin = A2;
 int potVal = 0;
 //---------------------
 
 //---Water Sensor
 int waterPin = A0;
 int waterLevel = 0;
-const int waterThreshhold = 10;
+const int waterThreshhold = 212;
 //--------------
 
 //---Temp and Humidity
 #define DHT11PIN 7
 dht11 DHT11;
 
-const float tempThreshhold = 20; //In degrees celcius
+const float tempThreshhold = 24; //In degrees celcius
 float tempInCelcius = 0;
 float humidity = 0;
 //-------------------
@@ -78,14 +67,12 @@ enum LED_NAME
 
 #define START_BUTTON_PIN 8
 int buttonState = 0;
- 
+int lastButtonState = 0;
+
 void setup()
 {
   //---LCD
   lcd.begin(16, 2); //Columns and rows
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Hello world!");
 
   //---Stepper Motor
   pinMode(STEPPER_PIN_1, OUTPUT);
@@ -104,7 +91,7 @@ void setup()
   pinMode(GREEN_LED_PIN, OUTPUT);
   pinMode(BLUE_LED_PIN, OUTPUT);
 
-  pinMode(START_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(START_BUTTON_PIN, INPUT);
 
   //Init Serial Connection
   Serial.begin(9600);
@@ -129,6 +116,8 @@ void HandleMachineDisabled()
   digitalWrite(DIRB, LOW);
   analogWrite(ENABLE, LOW);
 
+  lcd.clear();
+  lcd.setCursor(0, 0);
   lcd.print("Disabled :(");
 }
 void HandleMachineIdle() 
@@ -190,7 +179,9 @@ void HandleMachineError()
 
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Water level is too low!");
+  lcd.print("Water level is");
+  lcd.setCursor(0, 1);
+  lcd.print("too low!");
 
   //Turn on LED
   ActivateLed(RED);
@@ -201,11 +192,11 @@ void TempAndHumToLCD()
   lcd.clear();
 
   lcd.setCursor(0, 0);
-  lcd.print("Humidity (%): ");
+  lcd.print("Humidity %");
   lcd.print(humidity, 2);
 
   lcd.setCursor(0, 1);
-  lcd.print("Temperature  (C): ");
+  lcd.print("Temp (C): ");
   lcd.print(tempInCelcius, 2);
 }
 
@@ -254,8 +245,8 @@ void loop()
 {
   //---Sensor Readings
   potVal = analogRead(potPin);
-  Serial.print("Potentiometer: "); 
-  Serial.println(potVal);
+  //Serial.print("Potentiometer: "); 
+  //Serial.println(potVal);
 
   waterLevel = analogRead(waterPin);
   Serial.print("Water Level: "); 
@@ -264,20 +255,23 @@ void loop()
   int readDHT11 = DHT11.read(DHT11PIN);
   tempInCelcius = (float)DHT11.temperature;
   humidity = (float)DHT11.humidity;
-  //Serial.print("Humidity (%): ");
-  //Serial.println(humidity, 2);
-  //Serial.print("Temperature  (C): ");
-  //Serial.println(tempInCelcius, 2);
+  /*
+  Serial.print("Humidity (%): ");
+  Serial.println(humidity, 2);
+  Serial.print("Temperature  (C): ");
+  Serial.println(tempInCelcius, 2);
+  */
   //-----------
 
   //Check for start button input
   buttonState = digitalRead(START_BUTTON_PIN);
-  if (buttonState == LOW)
+
+  if (buttonState == HIGH && lastButtonState == LOW) 
   {
     StartButtonPressed();
-    delay(50); //Debounce delay
-    while(digitalRead(buttonState) == LOW); //Idle till button is released
+    delay(50); //Debounce
   }
+  lastButtonState = buttonState;
 
   //State Machine
   switch (currentState)
@@ -296,37 +290,32 @@ void loop()
       break;
   }
 
-  /*
-  //Stepper Motor
-  int targetStep = map(potVal, 0, 1023, -maxStep, maxStep);
+  HandleStepper();
 
-  if (currentStep < targetStep) 
-  {
-    OneStep(false);
-    currentStep++;
-  } 
-  else if (currentStep > targetStep)
-  {
-    OneStep(true);
-    currentStep--;
-  }
-  */
-
-  delay(1000); //1 second(s)
+  //delay(50);
 }
 
-void OneStep(bool dir) 
+unsigned long lastStepTime = 0;
+int stepDelay = 2; // milliseconds per step
+
+void HandleStepper()
 {
-  digitalWrite(STEPPER_PIN_1, sequence[stepNumber][0]);
-  digitalWrite(STEPPER_PIN_2, sequence[stepNumber][1]);
-  digitalWrite(STEPPER_PIN_3, sequence[stepNumber][2]);
-  digitalWrite(STEPPER_PIN_4, sequence[stepNumber][3]);
+  int currentStep = map(potVal, 0, 1023, 0, 100);
+  unsigned long now = millis();
+  Serial.println(currentStep);
 
-  if (dir)
-    stepNumber--;
-  else
-    stepNumber++;
+  if (now - lastStepTime >= stepDelay)
+  {
+    lastStepTime = now;
+    stepper.setSpeed(200);
 
-  if (stepNumber > 7) stepNumber = 0;
-  if (stepNumber < 0) stepNumber = 7;
+    if (currentStep < 40) 
+    { 
+      stepper.step(10);
+    }
+    else if (currentStep > 60) 
+    { 
+      stepper.step(-10);
+    }
+  }
 }
