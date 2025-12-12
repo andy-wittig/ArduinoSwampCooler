@@ -81,7 +81,7 @@ float humidity = 0;
 int buttonState = 0;
 int lastButtonState = 0;
 
-//---UART
+//---UART---
 #define RDA 0x80
 #define TBE 0x20
 volatile unsigned char *myUCSR0A = (unsigned char *)0x00C0;
@@ -90,7 +90,13 @@ volatile unsigned char *myUCSR0C = (unsigned char *)0x00C2;
 volatile unsigned int  *myUBRR0  = (unsigned int *) 0x00C4;
 volatile unsigned char *myUDR0   = (unsigned char *)0x00C6;
 
-//---Function Definitions
+//---ADC---
+volatile unsigned char* my_ADMUX = (unsigned char*) 0x7C;
+volatile unsigned char* my_ADCSRB = (unsigned char*) 0x7B;
+volatile unsigned char* my_ADCSRA = (unsigned char*) 0x7A;
+volatile unsigned int* my_ADC_DATA = (unsigned int*) 0x78;
+
+//---Function Definitions---
 void SwitchState(MACHINE_STATE newState);
 void ActivateLed(LED_NAME name);
 void HandleStepper();
@@ -110,30 +116,48 @@ void setup()
   rtc.begin();
   rtc.adjust(DateTime(F(__DATE__),F(__TIME__)));
 
-  U0init(9600); //Init serial connection
+  //---Serial & Analog---
+  U0init(9600);
+  adc_init();
 
   //---LCD---
   lcd.begin(16, 2); //Columns and rows
 
+  //Arduino Mega Pinout
+
   //---Stepper Motor---
-  pinMode(STEPPER_PIN_1, OUTPUT); //TODO: Cannot use pinmode!
-  pinMode(STEPPER_PIN_2, OUTPUT);
-  pinMode(STEPPER_PIN_3, OUTPUT);
-  pinMode(STEPPER_PIN_4, OUTPUT);
+  //pinMode(STEPPER_PIN_1, OUTPUT);
+  DDRB |= (1 << PH6);
+  //pinMode(STEPPER_PIN_2, OUTPUT);
+  DDRB |= (1 << PB4);
+  //pinMode(STEPPER_PIN_3, OUTPUT);
+  DDRB |= (1 << PB5);
+  //pinMode(STEPPER_PIN_4, OUTPUT);
+  DDRB |= (1 << PB6);
 
   //---3-6v Motor---
-  pinMode(ENABLE, OUTPUT);
-  pinMode(DIRA, OUTPUT);
-  pinMode(DIRB, OUTPUT);
+  //pinMode(ENABLE, OUTPUT);
+  DDRB |= (1 << PE3);
+  //pinMode(DIRA, OUTPUT);
+  DDRB |= (1 << PE5);
+  //pinMode(DIRB, OUTPUT);
+  DDRB |= (1 << PG5);
 
   //---LEDs---
-  pinMode(RED_LED_PIN, OUTPUT);
-  pinMode(YELLOW_LED_PIN, OUTPUT);
-  pinMode(GREEN_LED_PIN, OUTPUT);
-  pinMode(BLUE_LED_PIN, OUTPUT);
+  //pinMode(RED_LED_PIN, OUTPUT);
+  DDRB |= (1 << PC7);
+  //pinMode(YELLOW_LED_PIN, OUTPUT);
+  DDRB |= (1 << PC6);
+  //pinMode(GREEN_LED_PIN, OUTPUT);
+  DDRB |= (1 << PC5);
+  //pinMode(BLUE_LED_PIN, OUTPUT);
+  DDRB |= (1 << PC4);
 
   //---Buttons---
-  pinMode(START_BUTTON_PIN, INPUT);
+  //pinMode(START_BUTTON_PIN, INPUT);
+  DDRB |= ~(1 << PH5);
+  PORTD |= (1 << PH5); //pull-up
+  attachInterrupt(digitalPinToInterrupt(START_BUTTON_PIN), StartButtonPressed, FALLING);
 }
 
 //---UART Functions---
@@ -181,11 +205,19 @@ void SwitchState(MACHINE_STATE  newState)
 
 void ActivateLed(LED_NAME name)
 {
-  //TODO: Can't use digital write here:
-  digitalWrite(RED_LED_PIN, name == RED ? HIGH : LOW);
-  digitalWrite(YELLOW_LED_PIN, name == YELLOW ? HIGH : LOW);
-  digitalWrite(GREEN_LED_PIN, name == GREEN ? HIGH : LOW);
-  digitalWrite(BLUE_LED_PIN, name == BLUE ? HIGH : LOW);
+  //digitalWrite(RED_LED_PIN, name == RED ? HIGH : LOW);
+  //digitalWrite(YELLOW_LED_PIN, name == YELLOW ? HIGH : LOW);
+  //digitalWrite(GREEN_LED_PIN, name == GREEN ? HIGH : LOW);
+  //digitalWrite(BLUE_LED_PIN, name == BLUE ? HIGH : LOW);
+
+  if (name == RED) { PORTB |= (1 << PC7); }
+  else { PORTB |= ~(1 << PC7); }
+  if (name == YELLOW) { PORTB |= (1 << PC6); }
+  else { PORTB |= ~(1 << PC6); }
+  if (name == GREEN) { PORTB |= (1 << PC5); }
+  else { PORTB |= ~(1 << PC5); }
+  if (name == BLUE) { PORTB |= (1 << PC4); }
+  else { PORTB |= ~(1 << PC4); }
 }
 
 void HandleMachineDisabled()
@@ -267,8 +299,10 @@ void TempAndHumToLCD()
 
 void StopFan()
 {
-  digitalWrite(DIRA, LOW); //TODO
-  digitalWrite(DIRB, LOW); //TODO
+  //digitalWrite(DIRA, LOW);
+  PORTB |= ~(1 << PE5);
+  //digitalWrite(DIRB, LOW);
+  PORTB |= ~(1 << PG5);
   analogWrite(ENABLE, LOW); //<-- Okay to use here.
 
   String msg = String("Fan Stopped: ") + GetTime();
@@ -276,8 +310,10 @@ void StopFan()
 }
 void StartFan()
 {
-  digitalWrite(DIRA, HIGH); //TODO
-  digitalWrite(DIRB, LOW); //TODO
+  //digitalWrite(DIRA, HIGH);
+  PORTB |= (1 << PE5);
+  //digitalWrite(DIRB, LOW);
+  PORTB |= ~(1 << PG5);
   analogWrite(ENABLE, FAN_SPEED); //<-- Okay to use here.
 
   String msg = String("Fan Started: ") + GetTime();
@@ -302,68 +338,107 @@ void StartButtonPressed()
       SwitchState(DISABLED);
       break;
   }
+  buttonState = true;
 }
+
+//---ADC Functions---
+void adc_init()
+{
+  *my_ADMUX = (1 << 6); 
+  *my_ADCSRA = (1 << 7) | (1 << 2) | (1 << 1) | (1 << 0); 
+  *my_ADCSRB = 0x00;
+}
+
+//Reads analog data from a specific ADC channel
+unsigned int adc_read(int channelNum)
+{
+  channelNum &= 0x07;
+  *my_ADMUX &= 0xE0;
+  *my_ADCSRB &= 0xF7;
+  *my_ADMUX |= channelNum;
+  *my_ADCSRA |= (1 << 6);
+
+  while ((*my_ADCSRA & (1 << 6)) != 0);
+
+  unsigned int val = *my_ADC_DATA;
+  return val;
+}
+//---End ADC---
 
 bool allowMonitoring = true;
 bool allowVentControl = true;
+unsigned long lastUpdateTime = 0;
+int updateDelay = 60000; //One minute delay for main loop processing
+
 void loop() 
 {
-  while (U0kbhit() == 0) { };
+  //while (U0kbhit() == 0) { };
 
-  //---Sensor Readings---
-  if (allowMonitoring)
+  unsigned long now = millis();
+
+  if (now - lastUpdateTime >= updateDelay)
   {
-    potVal = analogRead(potPin); //TODO: canot use analogRead!
-    waterLevel = analogRead(waterPin); //TODO: canot use analogRead!
-    //TODO: Either interupt from comparator or via a sample using the ADC (cannot use ADC library)
+    lastUpdateTime = now;
+    //---Sensor Readings---
+    if (allowMonitoring)
+    {
+      //potVal = analogRead(potPin);
+      potVal = adc_read(2);
+      //waterLevel = analogRead(waterPin);
+      waterLevel = adc_read(0);
 
-    int readDHT11 = DHT11.read(DHT11PIN);
-    tempInCelcius = (float)DHT11.temperature;
-    humidity = (float)DHT11.humidity;
-  }
+      int readDHT11 = DHT11.read(DHT11PIN);
+      tempInCelcius = (float)DHT11.temperature;
+      humidity = (float)DHT11.humidity;
+    }
 
-  //Check for start button input
-  buttonState = digitalRead(START_BUTTON_PIN); //TODO: Should be monitored using an ISR
-  //can use attachInterrupt()
+    //Check for start button input
+    /*
+    buttonState = digitalRead(START_BUTTON_PIN);
 
-  if (buttonState == HIGH && lastButtonState == LOW) 
-  {
-    StartButtonPressed();
-    delay(50); //Debounce TODO: Can't use delay, allowed to use the millis()
-  }
-  lastButtonState = buttonState;
+    if (buttonState == HIGH && lastButtonState == LOW) 
+    {
+      StartButtonPressed();
+      delay(50); //Debounce
+    }
+    lastButtonState = buttonState;
+    */
+    if (buttonState)
+    {
+      buttonState = false;
+      delay(50); //Debounce
+    }
 
-  //State Machine
-  switch (currentState)
-  {
-    case (DISABLED):
-      HandleMachineDisabled();
-      allowMonitoring = false;
-      allowVentControl = false;
-      break;
-    case (IDLE):
-      HandleMachineIdle();
-      allowMonitoring = true;
-      allowVentControl = true;
-      break;
-    case (RUNNING):
-      HandleMachineRunning();
-      allowMonitoring = true;
-      allowVentControl = true;
-      break;
-    case (ERROR):
-      HandleMachineError();
-      allowMonitoring = true;
-      allowVentControl = true;
-      break;
+    //State Machine
+    switch (currentState)
+    {
+      case (DISABLED):
+        HandleMachineDisabled();
+        allowMonitoring = false;
+        allowVentControl = false;
+        break;
+      case (IDLE):
+        HandleMachineIdle();
+        allowMonitoring = true;
+        allowVentControl = true;
+        break;
+      case (RUNNING):
+        HandleMachineRunning();
+        allowMonitoring = true;
+        allowVentControl = true;
+        break;
+      case (ERROR):
+        HandleMachineError();
+        allowMonitoring = true;
+        allowVentControl = true;
+        break;
+    }
   }
 
   if (allowVentControl)
   {
     HandleStepper();
   }
-
-  delay(60000); //Update every one minute TODO: Can't use delay
 }
 
 unsigned long lastStepTime = 0;
