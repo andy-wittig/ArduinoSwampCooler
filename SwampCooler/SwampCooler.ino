@@ -106,7 +106,7 @@ enum MACHINE_STATE {
 
 MACHINE_STATE currentState = IDLE;
 
-void HandleMachineDisabled() 
+void HandleMachineDisabled() //TODO: Don't allow vent control when disabled!
 { 
   //Turn on LED
   ActivateLed(YELLOW);
@@ -120,7 +120,7 @@ void HandleMachineDisabled()
   lcd.setCursor(0, 0);
   lcd.print("Disabled :(");
 }
-void HandleMachineIdle() 
+void HandleMachineIdle() //TODO: Record timestamp of when states transition!
 { 
   //Change state condition
   if (tempInCelcius > tempThreshhold)
@@ -205,12 +205,16 @@ void StopFan()
   digitalWrite(DIRA, LOW);
   digitalWrite(DIRB, LOW);
   analogWrite(ENABLE, LOW);
+
+  //TODO: Print time and day to serial monitor!
 }
 void StartFan()
 {
   digitalWrite(DIRA, HIGH);
   digitalWrite(DIRB, LOW);
   analogWrite(ENABLE, 100);
+
+  //TODO: Print time and day to serial monitor!
 }
 
 void ActivateLed(LED_NAME name)
@@ -249,8 +253,9 @@ void loop()
   //Serial.println(potVal);
 
   waterLevel = analogRead(waterPin);
-  Serial.print("Water Level: "); 
-  Serial.println(waterLevel);
+  //TODO: Either interupt from comparator or via a sample using the ADC (cannot use ADC library)
+  //Serial.print("Water Level: "); 
+  //Serial.println(waterLevel);
 
   int readDHT11 = DHT11.read(DHT11PIN);
   tempInCelcius = (float)DHT11.temperature;
@@ -263,7 +268,7 @@ void loop()
   */
   //-----------
 
-  //Check for start button input
+  //Check for start button input -- TODO: Should be monitored using and ISR
   buttonState = digitalRead(START_BUTTON_PIN);
 
   if (buttonState == HIGH && lastButtonState == LOW) 
@@ -274,7 +279,7 @@ void loop()
   lastButtonState = buttonState;
 
   //State Machine
-  switch (currentState)
+  switch (currentState) //TODO: Values should not be monitored when disabled.
   {
     case (DISABLED):
       HandleMachineDisabled();
@@ -292,14 +297,14 @@ void loop()
 
   HandleStepper();
 
-  //delay(50);
+  delay(50); //TODO: Updates every 1 minute!
 }
 
 unsigned long lastStepTime = 0;
 int stepDelay = 2; // milliseconds per step
 
 void HandleStepper()
-{
+{ //TODO: Stepper position must be reported to Serial.
   int currentStep = map(potVal, 0, 1023, 0, 100);
   unsigned long now = millis();
   Serial.println(currentStep);
