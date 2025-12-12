@@ -4,6 +4,13 @@
 #include <Wire.h>
 #include <RTClib.h>
 
+//------------------------
+//--Swamp Cooler Project--
+//Written by Andrew Wittig
+//For Final CPE301 Project
+//Dated - 12/12/2025
+//------------------------
+
 //---Time---
 RTC_DS3231 rtc;
 
