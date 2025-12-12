@@ -127,7 +127,7 @@ void setup()
 
   //---Stepper Motor---
   //pinMode(STEPPER_PIN_1, OUTPUT);
-  DDRB |= (1 << PH6);
+  DDRH |= (1 << PH6);
   //pinMode(STEPPER_PIN_2, OUTPUT);
   DDRB |= (1 << PB4);
   //pinMode(STEPPER_PIN_3, OUTPUT);
@@ -137,26 +137,26 @@ void setup()
 
   //---3-6v Motor---
   //pinMode(ENABLE, OUTPUT);
-  DDRB |= (1 << PE3);
+  DDRE |= (1 << PE3);
   //pinMode(DIRA, OUTPUT);
-  DDRB |= (1 << PE5);
+  DDRE |= (1 << PE5);
   //pinMode(DIRB, OUTPUT);
-  DDRB |= (1 << PG5);
+  DDRG |= (1 << PG5);
 
   //---LEDs---
   //pinMode(RED_LED_PIN, OUTPUT);
-  DDRB |= (1 << PC7);
+  DDRC |= (1 << PC7);
   //pinMode(YELLOW_LED_PIN, OUTPUT);
-  DDRB |= (1 << PC6);
+  DDRC |= (1 << PC6);
   //pinMode(GREEN_LED_PIN, OUTPUT);
-  DDRB |= (1 << PC5);
+  DDRC |= (1 << PC5);
   //pinMode(BLUE_LED_PIN, OUTPUT);
-  DDRB |= (1 << PC4);
+  DDRC |= (1 << PC4);
 
   //---Buttons---
   //pinMode(START_BUTTON_PIN, INPUT);
-  DDRB |= ~(1 << PH5);
-  PORTD |= (1 << PH5); //pull-up
+  DDRH &= ~(1 << PH5);
+  PORTH |= (1 << PH5); //pull-up
   attachInterrupt(digitalPinToInterrupt(START_BUTTON_PIN), StartButtonPressed, FALLING);
 }
 
@@ -210,14 +210,14 @@ void ActivateLed(LED_NAME name)
   //digitalWrite(GREEN_LED_PIN, name == GREEN ? HIGH : LOW);
   //digitalWrite(BLUE_LED_PIN, name == BLUE ? HIGH : LOW);
 
-  if (name == RED) { PORTB |= (1 << PC7); }
-  else { PORTB |= ~(1 << PC7); }
-  if (name == YELLOW) { PORTB |= (1 << PC6); }
-  else { PORTB |= ~(1 << PC6); }
-  if (name == GREEN) { PORTB |= (1 << PC5); }
-  else { PORTB |= ~(1 << PC5); }
-  if (name == BLUE) { PORTB |= (1 << PC4); }
-  else { PORTB |= ~(1 << PC4); }
+  if (name == RED) { PORTC |= (1 << PC7); }
+  else { PORTC &= ~(1 << PC7); }
+  if (name == YELLOW) { PORTC |= (1 << PC6); }
+  else { PORTC &= ~(1 << PC6); }
+  if (name == GREEN) { PORTC |= (1 << PC5); }
+  else { PORTC &= ~(1 << PC5); }
+  if (name == BLUE) { PORTC |= (1 << PC4); }
+  else { PORTC &= ~(1 << PC4); }
 }
 
 void HandleMachineDisabled()
@@ -300,9 +300,9 @@ void TempAndHumToLCD()
 void StopFan()
 {
   //digitalWrite(DIRA, LOW);
-  PORTB |= ~(1 << PE5);
+  PORTE &= ~(1 << PE5);
   //digitalWrite(DIRB, LOW);
-  PORTB |= ~(1 << PG5);
+  PORTG &= ~(1 << PG5);
   analogWrite(ENABLE, LOW); //<-- Okay to use here.
 
   String msg = String("Fan Stopped: ") + GetTime();
@@ -311,9 +311,9 @@ void StopFan()
 void StartFan()
 {
   //digitalWrite(DIRA, HIGH);
-  PORTB |= (1 << PE5);
+  PORTE |= (1 << PE5);
   //digitalWrite(DIRB, LOW);
-  PORTB |= ~(1 << PG5);
+  PORTG &= ~(1 << PG5);
   analogWrite(ENABLE, FAN_SPEED); //<-- Okay to use here.
 
   String msg = String("Fan Started: ") + GetTime();
@@ -368,7 +368,7 @@ unsigned int adc_read(int channelNum)
 bool allowMonitoring = true;
 bool allowVentControl = true;
 unsigned long lastUpdateTime = 0;
-int updateDelay = 60000; //One minute delay for main loop processing
+int updateDelay = 10; //One minute delay for main loop processing
 
 void loop() 
 {
