@@ -66,7 +66,7 @@ const int waterThreshhold = 10;
 #define DHT11PIN 7
 dht11 DHT11;
 
-const float tempThreshhold = 24; //In degrees celcius
+const float tempThreshhold = 22; //In degrees celcius
 float tempInCelcius = 0;
 float humidity = 0;
 
@@ -77,7 +77,7 @@ float humidity = 0;
 #define BLUE_LED_PIN 33
 
 //---Buttons---
-#define START_BUTTON_PIN 8
+#define START_BUTTON_PIN 2
 int buttonState = 0;
 int lastButtonState = 0;
 
@@ -155,8 +155,8 @@ void setup()
 
   //---Buttons---
   //pinMode(START_BUTTON_PIN, INPUT);
-  DDRH &= ~(1 << PH5);
-  PORTH |= (1 << PH5); //pull-up
+  DDRE &= ~(1 << PE4);
+  PORTE |= (1 << PE4); //pull-up
   attachInterrupt(digitalPinToInterrupt(START_BUTTON_PIN), StartButtonPressed, FALLING);
 }
 
@@ -322,22 +322,6 @@ void StartFan()
 
 void StartButtonPressed()
 {
-  switch (currentState)
-  {
-    case (DISABLED):
-      SwitchState(IDLE);
-      break;
-    case (IDLE):
-      SwitchState(DISABLED);
-      break;
-    case (RUNNING):
-      StopFan();
-      SwitchState(DISABLED);
-      break;
-    case (ERROR):
-      SwitchState(DISABLED);
-      break;
-  }
   buttonState = true;
 }
 
@@ -368,7 +352,7 @@ unsigned int adc_read(int channelNum)
 bool allowMonitoring = true;
 bool allowVentControl = true;
 unsigned long lastUpdateTime = 0;
-int updateDelay = 10; //One minute delay for main loop processing
+int updateDelay = 60000; //One minute delay for main loop processing
 
 void loop() 
 {
@@ -405,6 +389,24 @@ void loop()
     */
     if (buttonState)
     {
+      PrintMessage("Button Pressed!");
+      switch (currentState)
+      {
+        case (DISABLED):
+          SwitchState(IDLE);
+          break;
+        case (IDLE):
+          SwitchState(DISABLED);
+          break;
+        case (RUNNING):
+          StopFan();
+          SwitchState(DISABLED);
+          break;
+        case (ERROR):
+          SwitchState(DISABLED);
+          break;
+      }
+
       buttonState = false;
       delay(50); //Debounce
     }
