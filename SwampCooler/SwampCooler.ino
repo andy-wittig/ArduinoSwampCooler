@@ -1,6 +1,37 @@
 #include <dht11.h>
 #include <LiquidCrystal.h>
 #include <Stepper.h>
+#include <Wire.h>
+#include <RTClib.h>
+
+//---Time
+RTC_DS3231 rtc;
+//-------
+
+String GetTime()
+{
+  char time[32];
+  DateTime curTime = rtc.now();
+  sprintf(time, "%02d:%02d:%02d %02d/%02d/%02d", curTime.hour(), curTime.minute(), curTime.second(), curTime.day(), curTime.month(), curTime.year());
+  return String(time);
+}
+
+enum MACHINE_STATE {
+  DISABLED,
+  IDLE,
+  RUNNING,
+  ERROR
+};
+
+MACHINE_STATE currentState = IDLE;
+
+enum LED_NAME
+{
+  RED,
+  YELLOW,
+  GREEN,
+  BLUE
+};
 
 //---LCD
 const int rs = 22, en = 24, d4 = 29, d5 = 27, d6 = 25, d7 = 23;
@@ -55,22 +86,43 @@ float humidity = 0;
 #define YELLOW_LED_PIN 31
 #define GREEN_LED_PIN 32
 #define BLUE_LED_PIN 33
-
-enum LED_NAME
-{
-  RED,
-  YELLOW,
-  GREEN,
-  BLUE
-};
 //-------
 
 #define START_BUTTON_PIN 8
 int buttonState = 0;
 int lastButtonState = 0;
 
+//---UART
+#define RDA 0x80
+#define TBE 0x20
+volatile unsigned char *myUCSR0A = (unsigned char *)0x00C0;
+volatile unsigned char *myUCSR0B = (unsigned char *)0x00C1;
+volatile unsigned char *myUCSR0C = (unsigned char *)0x00C2;
+volatile unsigned int  *myUBRR0  = (unsigned int *) 0x00C4;
+volatile unsigned char *myUDR0   = (unsigned char *)0x00C6;
+//-------
+
+void SwitchState(MACHINE_STATE newState);
+void ActivateLed(LED_NAME name);
+void HandleStepper();
+void TempAndHumToLCD();
+void StopFan();
+void StartFan();
+void StartButtonPressed();
+void HandleMachineDisabled();
+void HandleMachineIdle();
+void HandleMachineRunning();
+void HandleMachineError();
+
 void setup()
 {
+  //---Time
+  Wire.begin();
+  rtc.begin();
+  rtc.adjust(DateTime(F(__DATE__),F(__TIME__)));
+
+  U0init(9600); //Init serial connection
+
   //---LCD
   lcd.begin(16, 2); //Columns and rows
 
@@ -92,21 +144,60 @@ void setup()
   pinMode(BLUE_LED_PIN, OUTPUT);
 
   pinMode(START_BUTTON_PIN, INPUT);
-
-  //Init Serial Connection
-  Serial.begin(9600);
 }
 
-enum MACHINE_STATE {
-  DISABLED,
-  IDLE,
-  RUNNING,
-  ERROR
-};
+//---UART Functions
+void U0init(unsigned long U0baud)
+{
+  unsigned long FCPU = 16000000;
+  unsigned int tbaud;
+  tbaud = (FCPU / 16 / U0baud - 1);
+  *myUCSR0A = 0x20;
+  *myUCSR0B = 0x18;
+  *myUCSR0C = 0x06;
+  *myUBRR0  = tbaud;
+}
+unsigned char U0kbhit()
+{
+  bool RDAStatus = ((*myUCSR0A & RDA) != 0);
+  return RDAStatus;
+}
+unsigned char U0getchar()
+{
+  return *myUDR0;
+}
+void U0putchar(unsigned char U0pdata)
+{
+  while ((*myUCSR0A & TBE) == 0);
+  *myUDR0 = U0pdata;
+}
+void PrintMessage(const char message[])
+{
+   int messageLength = strlen(message);
+   for (int i = 0; i < messageLength; i++)
+   {
+      U0putchar(message[i]);
+   }
+   U0putchar('\n');
+}
+//-------------
 
-MACHINE_STATE currentState = IDLE;
+void SwitchState(MACHINE_STATE  newState)
+{
+  currentState = newState;
+  String msg = String("State has been switched! ") + GetTime();
+  PrintMessage(msg.c_str());
+}
 
-void HandleMachineDisabled() //TODO: Don't allow vent control when disabled!
+void ActivateLed(LED_NAME name)
+{
+  digitalWrite(RED_LED_PIN, name == RED ? HIGH : LOW);
+  digitalWrite(YELLOW_LED_PIN, name == YELLOW ? HIGH : LOW);
+  digitalWrite(GREEN_LED_PIN, name == GREEN ? HIGH : LOW);
+  digitalWrite(BLUE_LED_PIN, name == BLUE ? HIGH : LOW);
+}
+
+void HandleMachineDisabled() //COMPLETE: Don't allow vent control when disabled!
 { 
   //Turn on LED
   ActivateLed(YELLOW);
@@ -125,13 +216,13 @@ void HandleMachineIdle() //TODO: Record timestamp of when states transition!
   //Change state condition
   if (tempInCelcius > tempThreshhold)
   {
-    currentState = RUNNING;
+    SwitchState(RUNNING);
     return;
   }
 
   if (waterLevel <= waterThreshhold)
   {
-    currentState = ERROR;
+    SwitchState(ERROR);
     return;
   }
 
@@ -152,14 +243,14 @@ void HandleMachineRunning()
   if (tempInCelcius <= tempThreshhold)
   {
     StopFan();
-    currentState = IDLE;
+    SwitchState(IDLE);
     return;
   }
 
   if (waterLevel < waterThreshhold)
   {
     StopFan();
-    currentState = ERROR;
+    SwitchState(ERROR);
     return;
   }
 
@@ -173,10 +264,7 @@ void HandleMachineRunning()
   StartFan();
 }
 void HandleMachineError() 
-{ 
-  //Change state condition
-  //Press reset button
-
+{
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Water level is");
@@ -206,7 +294,8 @@ void StopFan()
   digitalWrite(DIRB, LOW);
   analogWrite(ENABLE, LOW);
 
-  //TODO: Print time and day to serial monitor!
+  String msg = String("Fan Stopped: ") + GetTime();
+  PrintMessage(msg.c_str());
 }
 void StartFan()
 {
@@ -214,15 +303,8 @@ void StartFan()
   digitalWrite(DIRB, LOW);
   analogWrite(ENABLE, 100);
 
-  //TODO: Print time and day to serial monitor!
-}
-
-void ActivateLed(LED_NAME name)
-{
-  digitalWrite(RED_LED_PIN, name == RED ? HIGH : LOW);
-  digitalWrite(YELLOW_LED_PIN, name == YELLOW ? HIGH : LOW);
-  digitalWrite(GREEN_LED_PIN, name == GREEN ? HIGH : LOW);
-  digitalWrite(BLUE_LED_PIN, name == BLUE ? HIGH : LOW);
+  String msg = String("Fan Started: ") + GetTime();
+  PrintMessage(msg.c_str());
 }
 
 void StartButtonPressed()
@@ -230,42 +312,49 @@ void StartButtonPressed()
   switch (currentState)
   {
     case (DISABLED):
-      currentState = IDLE;
+      SwitchState(IDLE);
       break;
     case (IDLE):
-      currentState = DISABLED;
+      SwitchState(DISABLED);
       break;
     case (RUNNING):
       StopFan();
-      currentState = DISABLED;
+      SwitchState(DISABLED);
       break;
     case (ERROR):
-      currentState = DISABLED;
+      SwitchState(DISABLED);
       break;
   }
 }
 
+bool allowMonitoring = true;
+bool allowVentControl = true;
 void loop() 
 {
+  while (U0kbhit() == 0) { };
+
   //---Sensor Readings
-  potVal = analogRead(potPin);
-  //Serial.print("Potentiometer: "); 
-  //Serial.println(potVal);
+  if (allowMonitoring)
+  {
+    potVal = analogRead(potPin);
+    //Serial.print("Potentiometer: "); 
+    //Serial.println(potVal);
 
-  waterLevel = analogRead(waterPin);
-  //TODO: Either interupt from comparator or via a sample using the ADC (cannot use ADC library)
-  //Serial.print("Water Level: "); 
-  //Serial.println(waterLevel);
+    waterLevel = analogRead(waterPin);
+    //TODO: Either interupt from comparator or via a sample using the ADC (cannot use ADC library)
+    //Serial.print("Water Level: "); 
+    //Serial.println(waterLevel);
 
-  int readDHT11 = DHT11.read(DHT11PIN);
-  tempInCelcius = (float)DHT11.temperature;
-  humidity = (float)DHT11.humidity;
-  /*
-  Serial.print("Humidity (%): ");
-  Serial.println(humidity, 2);
-  Serial.print("Temperature  (C): ");
-  Serial.println(tempInCelcius, 2);
-  */
+    int readDHT11 = DHT11.read(DHT11PIN);
+    tempInCelcius = (float)DHT11.temperature;
+    humidity = (float)DHT11.humidity;
+    /*
+    Serial.print("Humidity (%): ");
+    Serial.println(humidity, 2);
+    Serial.print("Temperature  (C): ");
+    Serial.println(tempInCelcius, 2);
+    */
+  }
   //-----------
 
   //Check for start button input -- TODO: Should be monitored using and ISR
@@ -279,47 +368,66 @@ void loop()
   lastButtonState = buttonState;
 
   //State Machine
-  switch (currentState) //TODO: Values should not be monitored when disabled.
+  switch (currentState) //COMPLETE: Values should not be monitored when disabled.
   {
     case (DISABLED):
       HandleMachineDisabled();
+      allowMonitoring = false;
+      allowVentControl = false;
       break;
     case (IDLE):
       HandleMachineIdle();
+      allowMonitoring = true;
+      allowVentControl = true;
       break;
     case (RUNNING):
       HandleMachineRunning();
+      allowMonitoring = true;
+      allowVentControl = true;
       break;
     case (ERROR):
       HandleMachineError();
+      allowMonitoring = true;
+      allowVentControl = true;
       break;
   }
 
-  HandleStepper();
+  if (allowVentControl)
+  {
+    HandleStepper();
+  }
 
-  delay(50); //TODO: Updates every 1 minute!
+  delay(60000); //COMPLETE: Updates every 1 minute!
 }
 
 unsigned long lastStepTime = 0;
-int stepDelay = 2; // milliseconds per step
+int stepDelay = 2;
+int stepPos = 0;
 
 void HandleStepper()
-{ //TODO: Stepper position must be reported to Serial.
+{
   int currentStep = map(potVal, 0, 1023, 0, 100);
   unsigned long now = millis();
-  Serial.println(currentStep);
 
   if (now - lastStepTime >= stepDelay)
   {
     lastStepTime = now;
     stepper.setSpeed(200);
 
+    //TODO: Stepper position must be reported to Serial. Provide data and time!
     if (currentStep < 40) 
     { 
+      
+      stepPos--;
+      String msg = "Moving vent left: " + String(stepPos) + GetTime();
+      PrintMessage(msg.c_str());
       stepper.step(10);
     }
     else if (currentStep > 60) 
     { 
+      stepPos++;
+      String msg = "Moving vent right: " + String(stepPos) + GetTime();
+      PrintMessage(msg.c_str());
       stepper.step(-10);
     }
   }
