@@ -67,13 +67,13 @@ int potVal = 0;
 //---Water Sensor---
 int waterPin = A0;
 int waterLevel = 0;
-const int waterThreshhold = 10;
+const int waterThreshhold = 240;
 
 //---Temp & Humidity---
 #define DHT11PIN 7
 dht11 DHT11;
 
-const float tempThreshhold = 22; //In degrees celcius
+const float tempThreshhold = 25; //In degrees celcius
 float tempInCelcius = 0;
 float humidity = 0;
 
@@ -84,8 +84,8 @@ float humidity = 0;
 #define BLUE_LED_PIN 33
 
 //---Buttons---
-#define START_BUTTON_PIN 2
-int buttonState = 0;
+#define START_BUTTON_PIN 18
+volatile bool buttonState = false;
 int lastButtonState = 0;
 
 //---UART---
@@ -162,8 +162,8 @@ void setup()
 
   //---Buttons---
   //pinMode(START_BUTTON_PIN, INPUT);
-  DDRE &= ~(1 << PE4);
-  PORTE |= (1 << PE4); //pull-up
+  DDRD &= ~(1 << PD3);
+  PORTD |= (1 << PD3); //pull-up
   attachInterrupt(digitalPinToInterrupt(START_BUTTON_PIN), StartButtonPressed, FALLING);
 }
 
@@ -327,9 +327,16 @@ void StartFan()
   PrintMessage(msg.c_str());
 }
 
+volatile unsigned long last_interrupt_time = 0;
+
 void StartButtonPressed()
 {
-  buttonState = true;
+  unsigned long interrupt_time = millis();
+  if (interrupt_time - last_interrupt_time > 200) 
+  {
+    buttonState = true;
+  }
+  last_interrupt_time = interrupt_time;
 }
 
 //---ADC Functions---
@@ -359,7 +366,7 @@ unsigned int adc_read(int channelNum)
 bool allowMonitoring = true;
 bool allowVentControl = true;
 unsigned long lastUpdateTime = 0;
-int updateDelay = 60000; //One minute delay for main loop processing
+int updateDelay = 10; //One minute delay for main loop processing
 
 void loop() 
 {
@@ -377,25 +384,20 @@ void loop()
       potVal = adc_read(2);
       //waterLevel = analogRead(waterPin);
       waterLevel = adc_read(0);
+      
+      char msg[32];
+      snprintf(msg, sizeof(msg), "Water level: %d", waterLevel);
+      PrintMessage(msg);
 
       int readDHT11 = DHT11.read(DHT11PIN);
       tempInCelcius = (float)DHT11.temperature;
       humidity = (float)DHT11.humidity;
     }
 
-    //Check for start button input
-    /*
-    buttonState = digitalRead(START_BUTTON_PIN);
-
-    if (buttonState == HIGH && lastButtonState == LOW) 
-    {
-      StartButtonPressed();
-      delay(50); //Debounce
-    }
-    lastButtonState = buttonState;
-    */
     if (buttonState)
     {
+      buttonState = false;
+
       PrintMessage("Button Pressed!");
       switch (currentState)
       {
@@ -413,9 +415,6 @@ void loop()
           SwitchState(DISABLED);
           break;
       }
-
-      buttonState = false;
-      delay(50); //Debounce
     }
 
     //State Machine
@@ -446,7 +445,7 @@ void loop()
 
   if (allowVentControl)
   {
-    HandleStepper();
+   HandleStepper();
   }
 }
 
