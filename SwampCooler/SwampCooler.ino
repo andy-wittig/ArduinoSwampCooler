@@ -327,16 +327,16 @@ void StartFan()
   PrintMessage(msg.c_str());
 }
 
-volatile unsigned long last_interrupt_time = 0;
+volatile unsigned long lastInterruptTime = 0;
 
 void StartButtonPressed()
 {
-  unsigned long interrupt_time = millis();
-  if (interrupt_time - last_interrupt_time > 200) 
+  unsigned long interruptTime = millis();
+  if (interruptTime - lastInterruptTime > 200) //Debounce
   {
     buttonState = true;
   }
-  last_interrupt_time = interrupt_time;
+  lastInterruptTime = interruptTime;
 }
 
 //---ADC Functions---
